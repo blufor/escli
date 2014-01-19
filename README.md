@@ -3,7 +3,7 @@ escli
 
 ElasticSearch CLI tool for human beings (i.e. sysadmins)
 
-'''
+`
 Usage:
   escli [-j] index list [<regex>]
   escli [-j] index delete <regex>
@@ -23,5 +23,4 @@ Usage:
   escli [-j] cluster shutdown [<nodes>] # TBD
   escli [-j] cluster status # TBD
   escli [-j] cluster health
-
-'''
+`
