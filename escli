@@ -1,0 +1,208 @@
+#!/usr/bin/ruby
+
+require 'yaml'
+require 'elasticsearch'
+require 'json'
+require 'docopt'
+
+class EScli
+
+  attr_reader :options
+  attr_reader :config
+
+  def initialize
+    @config = read_config_file
+    # get_env_settings
+    parse_opts
+    @es = Elasticsearch::Client.new host: @config[:server].to_s
+  end
+
+  # def log message, level
+  def log message
+    # puts( Time.now.to_s + ': ' + message ) if level < self.config['level']
+    puts(Time.now.to_s + ': ' + message)
+  end
+
+
+  def parse_opts
+    doc = <<DOCOPT
+Usage:
+  #{__FILE__} [-j] index list [<regex>]
+  #{__FILE__} [-j] index delete <regex>
+  #{__FILE__} [-j] index open <regex>
+  #{__FILE__} [-j] index close <regex>
+  #{__FILE__} [-j] index optimize <regex>
+  #{__FILE__} [-j] index refresh <regex>
+  #{__FILE__} [-j] index flush <regex>
+  #{__FILE__} [-j] index get-mapping <index>
+  #{__FILE__} [-j] index put-mapping <index>
+  #{__FILE__} [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
+  #{__FILE__} [-j] template list
+  #{__FILE__} [-j] template get <template>
+  #{__FILE__} [-j] template put <template> <file>
+  #{__FILE__} [-j] cluster get-settings
+  #{__FILE__} [-j] cluster put-settings
+  #{__FILE__} [-j] cluster shutdown [<nodes>]
+  #{__FILE__} [-j] cluster status
+  #{__FILE__} [-j] cluster health
+DOCOPT
+    begin
+      @options = Docopt.docopt(doc)
+    rescue Docopt::Exit => e
+      puts 'ElasticSearch CLI tool for human beings (i.e. sysadmins)'
+      puts
+      puts e.message
+      exit
+    end
+  end
+
+  def get_env_settings
+  end
+
+  def read_config_file
+    YAML::load(File.open('.escli'))
+  end
+
+  def process!
+    if self.options['index']
+      if self.options['list']
+        if self.options['<regex>']
+          self.index_list self.options['<regex>']
+        else  
+          self.index_list
+        end
+      elsif self.options['delete']
+        if self.options['<regex>']
+          self.index_delete self.options['<regex>']
+        else  
+          log "You must provide index name or regex"
+        end
+      elsif self.options['open']
+        if self.options['<regex>']
+          self.index_open self.options['<regex>']
+        else  
+          log "You must provide index name or regex"
+        end
+      elsif self.options['close']
+        if self.options['<regex>']
+          self.index_close self.options['<regex>']
+        else  
+          log "You must provide index name or regex"
+        end
+      elsif self.options['get-mapping']
+        self.index_get_mapping self.options['<index>']
+      end
+    elsif self.options['cluster']
+      if self.options['health']
+        self.cluster_health
+      end
+    elsif self.options['template']
+      if self.options['list']
+        self.template_list
+      end
+    end
+  end
+
+  def run!
+    if self.options['-j']
+      puts JSON.pretty_generate self.process!
+    else
+      puts self.process!.to_yaml
+    end
+  end
+
+
+
+##############################################################################
+### APP METHODS ##############################################################
+##############################################################################
+
+  def index_list (filter = ".*")
+    es_blocks = @es.cluster.state({filter_index_templates: true, filter_metadata: true, filter_nodes: true, filter_routing_table: true})['blocks']['indices']
+    es_blocks ||= {}
+    es_indices = @es.indices.status['indices']
+
+    closed_indices = Hash.new
+    es_blocks.each_key do |index|
+      closed_indices[index] = { state: es_blocks[index].shift[1]['description'] }
+    end
+
+    available_indices = Hash.new
+    es_indices.each_key do |index|
+      available_indices[index] = { state: "index available" }
+    end
+
+    indices = Hash.new
+    indices.merge! closed_indices
+    indices.merge! available_indices
+
+    indices = indices.delete_if {|index, data| not Regexp.new(filter).match(index)}
+
+    { indices: indices.count, items: Hash[indices.sort] }
+  end
+
+  def index_open (filter = ".*")
+    opened = 0
+    items = self.index_list(filter)[:items].keys
+    items.each do |index|
+      log "Opening index #{index}."
+      @es.indices.open({ ignore_unavailable: false, index: index })
+      opened += 1
+      log "Index #{index} opened."
+    end
+    { opened: opened , indices: items }
+  end
+
+
+  def index_delete (filter = ".*")
+    deleted = 0
+    items = self.index_list(filter)[:items].keys
+    items.each do |index|
+      log "Deleting index #{index}."
+      @es.indices.delete({ ignore_unavailable: false, index: index })
+      deleted += 1
+      log "Index #{index} deleted."
+    end
+    { deleted: deleted , indices: items }
+  end
+
+  def index_close (filter = ".*")
+    closed = 0
+    items = self.index_list(filter)[:items].keys
+    items.each do |index|
+      log "Closing index #{index}."
+      @es.indices.close({ ignore_unavailable: false, index: index })
+      closed += 1
+      log "Index #{index} closed."
+    end
+    { closed: closed , indices: items }
+  end
+
+  def index_get_mapping index
+    @es.indices.get_mapping index: index
+  end
+
+
+  def template_list
+    @es.cluster.state({filter_blocks: true, filter_index_templates: false, filter_metadata: true, filter_nodes: true, filter_routing_table: true})
+  end
+
+  def template_get
+  end
+
+  def template_put
+  end
+
+  
+  def cluster_health
+    @es.cluster.health
+  end
+
+end
+
+##############################################################################
+### MAIN #####################################################################
+##############################################################################
+
+escli = EScli.new
+escli.run!
