@@ -4,81 +4,98 @@ require 'yaml'
 require 'elasticsearch'
 require 'json'
 require 'docopt'
+require 'zlib'
 
 class EScli
 
   attr_reader :options
   attr_reader :config
 
+  ###
+  # CORE: Initialize
+  #
   def initialize
-    @config = read_config_file
+    read_config_file
     # get_env_settings
     parse_opts
     @es = Elasticsearch::Client.new host: @config[:server].to_s
   end
 
-  # def log message, level
+  ###
+  # CORE: Log
+  #
   def log message
-    # puts( Time.now.to_s + ': ' + message ) if level < self.config['level']
+  # def log message, level
     puts(Time.now.to_s + ': ' + message)
+    # puts( Time.now.to_s + ': ' + message ) if level < self.config['level']
   end
 
 
+  ###
+  # CORE: Help & CLI options initialization
+  #
   def parse_opts
     doc = <<DOCOPT
 Usage:
-  #{__FILE__} [-j] index list [<regex>]
-  #{__FILE__} [-j] index delete <regex>
-  #{__FILE__} [-j] index open <regex>
-  #{__FILE__} [-j] index close <regex>
-  #{__FILE__} [-j] index optimize <regex>
-  #{__FILE__} [-j] index refresh <regex>
-  #{__FILE__} [-j] index flush <regex>
-  #{__FILE__} [-j] index dump <regex> [-t=<time>] [-s=<docs>]
-  #{__FILE__} [-j] index get-mapping <index>
-  #{__FILE__} [-j] index put-mapping <index>
-  #{__FILE__} [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
-  #{__FILE__} [-j] template list
-  #{__FILE__} [-j] template get <template>
-  #{__FILE__} [-j] template put <template> <file>
-  #{__FILE__} [-j] cluster get-settings
-  #{__FILE__} [-j] cluster put-settings
-  #{__FILE__} [-j] cluster shutdown [<nodes>]
-  #{__FILE__} [-j] cluster status
-  #{__FILE__} [-j] cluster health
-  #{__FILE__} (-h|--help)
+  escli [-j] index list [<regex>]
+  escli [-j] index delete <regex>
+  escli [-j] index open <regex>
+  escli [-j] index close <regex>
+  escli [-j] index optimize <regex>
+  escli [-j] index refresh <regex>
+  escli [-j] index flush <regex>
+  escli [-j] index dump <regex> [-g] [--scroll=<time>] [--docs=<docs>]
+  escli [-j] index get-mapping <index>
+  escli [-j] index put-mapping <index> <file>
+  escli [-j] index get-settings <index>
+  escli [-j] index put-settings <index> <file>
+  escli [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
+  escli [-j] template list
+  escli [-j] template get <template>
+  escli [-j] template put <template> <file>
+  escli [-j] cluster get-settings
+  escli [-j] cluster put-settings <file>
+  escli [-j] cluster shutdown [<nodes>]
+  escli [-j] cluster status
+  escli [-j] cluster health
+  escli (-h|--help)
+
+
+
+Index Actions:
+  list              Lists indices Can be filtered by regex.
+  delete            Deletes index/indices by regex. Try regex first on listing!
+  open              Opens closed index/indices by regex.
+  close             Closes index/indices by regex.
+  optimize          Optimizes index/indices by regex.
+  refresh           Refreshes index/indices by regex.
+  flush             Flushes index/indices by regex.
+  dump              Exports mapping, settings and data from index/indices.
+                    by regex into directory set in .escli.
+  get-mapping       Fetch mapping for index.
+  put-mapping       Set new mapping for index from file. `-` is STDIN.
+  get-settings      Fetch setting for index.
+  put-settings      Set new settings for index from file. `-` is STDIN.
+  clear-cache       Clear cache for index.
+
+Template Actions:
+  list              List templates.
+  get               Fetch template by its name.
+  put               Set template by name.
+
+Cluster Actions:
+  get-settings      Fetch cluster settings.
+  put-settings      Set cluster parameters from file. `-` is STDIN
+  shutdown          Shutdown cluster/nodes!
+  health            Display cluster health.
 
 Options:
   -h --help         Show this.
   -j                Show output in JSON instead of YAML.
-  -t=<time>         Time to keep scroll_id in ElasticSearch [default: 15m].
+  -g                Dump to gzipped files.
+  --scroll=<time>   Time to keep scroll_id in ElasticSearch [default: 30m].
+  --docs=<docs>     Number of documents to dump in one chunk [default: 1000].
 
-
-Index Actions:
-  list
-  delete
-  open
-  close
-  optimize
-  refresh
-  flush
-  dump
-  get-mapping
-  put-mapping
-  get-settings
-  put-settings
-  clear-cache
-
-Template Actions:
-  list
-  get
-  put
-
-Cluster Actions:
-  get-settings
-  put-settings
-  shutdown
-  health
 DOCOPT
     begin
       @options = Docopt.docopt(doc)
@@ -90,59 +107,59 @@ DOCOPT
     end
   end
 
+  ###
+  # CORE: Get settings from environment variables
+  #
   def get_env_settings
   end
 
+  ###
+  # CORE: Read .escli config file
+  #
   def read_config_file
-    YAML::load(File.open('.escli'))
+    @config = YAML::load(File.open('.escli'))
   end
 
+  ###
+  # CORE: Option logic
+  #
   def process!
     if self.options['index']
       if self.options['list']
-        if self.options['<regex>']
-          self.index_list self.options['<regex>']
-        else  
-          self.index_list
-        end
+        self.options['<regex>'] ? self.index_list(self.options['<regex>']) : self.index_list
       elsif self.options['delete']
-        if self.options['<regex>']
-          self.index_delete self.options['<regex>']
-        else  
-          log "You must provide index name or regex"
-        end
+        self.index_delete self.options['<regex>']
       elsif self.options['open']
-        if self.options['<regex>']
-          self.index_open self.options['<regex>']
-        else  
-          log "You must provide index name or regex"
-        end
+        self.index_open self.options['<regex>']
       elsif self.options['close']
-        if self.options['<regex>']
-          self.index_close self.options['<regex>']
-        else  
-          log "You must provide index name or regex"
-        end
+        self.index_close self.options['<regex>']
       elsif self.options['dump']
-        if self.options['<regex>']
-          self.index_dump self.options['<regex>']
-        else  
-          self.index_dump
-        end
+        self.index_dump self.options['<regex>']
       elsif self.options['get-mapping']
         self.index_get_mapping self.options['<index>']
+      elsif self.options['put-mapping']
+        self.index_put_mapping self.options['<index>']
+      elsif self.options['get-settings']
+        self.index_get_settings self.options['<index>']
+      elsif self.options['put-settings']
+        self.index_put_settings self.options['<index>']
       end
     elsif self.options['cluster']
       if self.options['health']
         self.cluster_health
+      elsif self.options['get-settings']
+        self.cluster_get_settings
       end
     elsif self.options['template']
       if self.options['list']
-        self.template_list
+        self.template_list 
       end
     end
   end
 
+  ###
+  # CORE: Runner
+  #
   def run!
     if self.options['-j']
       puts JSON.pretty_generate self.process!
@@ -151,19 +168,22 @@ DOCOPT
     end
   end
 
-
-
 ##############################################################################
 ### APP METHODS ##############################################################
 ##############################################################################
 
+  ###
+  # INDEX: List
+  #
   def index_list (filter = ".*")
+    log "Fetching blocks."
     es_blocks = @es.cluster.state({ filter_index_templates: true,
                                     filter_metadata: true, 
                                     filter_nodes: true,
                                     filter_routing_table: true,
                                   })['blocks']['indices']
     es_blocks ||= {}
+    log "Fetching indices."
     es_indices = @es.indices.status['indices']
 
     closed_indices = Hash.new
@@ -184,6 +204,9 @@ DOCOPT
     { indices: indices.count, items: Hash[indices.sort] }
   end
 
+  ###
+  # INDEX: Open
+  #
   def index_open (filter = ".*")
     opened = 0
     items = self.index_list(filter)[:items].keys
@@ -197,6 +220,9 @@ DOCOPT
   end
 
 
+  ###
+  # INDEX: Delete
+  #
   def index_delete (filter = ".*")
     deleted = 0
     items = self.index_list(filter)[:items].keys
@@ -209,6 +235,9 @@ DOCOPT
     { deleted: deleted , indices: items }
   end
 
+  ###
+  # INDEX: Close
+  #
   def index_close (filter = ".*")
     closed = 0
     items = self.index_list(filter)[:items].keys
@@ -221,6 +250,9 @@ DOCOPT
     { closed: closed , indices: items }
   end
 
+  ###
+  # INDEX: Dump
+  #
   def index_dump (filter = ".*")
     dump_dir = self.config[:dump_directory] || '/tmp/esdump'
     dumped_index_count = 0
@@ -239,26 +271,32 @@ DOCOPT
 
       log "#{index}: dumping index settings"
       fd_settings = File.open [dump_dir,index,'settings.json'].join('/'), 'w'
-      fd_settings << JSON.pretty_generate(self.index_get_settings(index)[index])
+      index_settings = self.index_get_settings(index)[index]
+      fd_settings << JSON.pretty_generate(index_settings)
       fd_settings.close
       log "#{index}: index settings dumped"
 
-      result = @es.search({ index: index,
-                            scroll: self.options['-t'] || '30m',
-                            search_type: 'scan',
-                            size: 200,
-                          })
-      log "#{index}: dumping #{result['hits']['total']} documents"
+      log "#{index}: preparing scroll search"
+      size = self.options['--docs'].to_i/index_settings['settings']['index.number_of_shards'].to_i
+      result = @es.search({ index: index, scroll: self.options['--scroll'], search_type: 'scan', size: size })
+      chunks = result['hits']['total']/self.options['--docs'].to_i+1
+      log "#{index}: dumping #{result['hits']['total']} documents in #{chunks} chunks"
       scroll_id = result['_scroll_id']
-      chunk = 0
+      orig_scroll_id = result['_scroll_id']
+      chunk = 1
+      log "#{index}: dumping chunk #{chunk}/#{chunks}"
       while data = @es.scroll({ scroll: self.options['-t'] || '30m', scroll_id: scroll_id})
-        chunk += 1
+        break if ( data['_scroll_id'] == scroll_id ) && ( data['_scroll_id'] != orig_scroll_id )
+        log "#{index}: dumping chunk #{chunk}/#{chunks}" if chunk != 1
         scroll_id = data['_scroll_id']
-        log "#{index}: dumping chunk \##{chunk}/#{result['hits']['total']/1000+1}"
-        fd_index = File.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json", 'w')
-        fd_index << data['hits']['hits'].to_json
+        if self.options['-g']
+          fd_index = Zlib::GzipWriter.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json.gz")
+        else
+          fd_index = File.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json", 'w+')
+        end
+        fd_index << JSON.pretty_generate(data['hits']['hits'])
         fd_index.close
-        scroll_id = data['_scroll_id']
+        chunk += 1
       end
       dumped_index_count += 1
       dumped_docs_count += result['hits']['total']
@@ -268,27 +306,88 @@ DOCOPT
     { dumped_indices: dumped_index_count, dumped_docs: dumped_docs_count, indices: items }
   end
 
+  def dump_output
+    if self.options['-g']
+      File
+    else
+      File
+    end
+  end
+
+  ###
+  # INDEX: Get Mapping
+  #
   def index_get_mapping index
     @es.indices.get_mapping index: index
   end
 
+  ###
+  # INDEX: Put Mapping
+  #
+  def index_put_mapping index
+    # @es.indices.put_mapping
+  end
+
+  ###
+  # INDEX: Get Settings
+  #
   def index_get_settings index
     @es.indices.get_settings index: index
   end
 
+  ###
+  # INDEX: Put Settings
+  #
+  def indes_put_settings index
+    # @es.indices.put_settings
+  end
+
+  ###
+  # TEMPLATE: List
+  #
   def template_list
     @es.cluster.state({filter_blocks: true, filter_index_templates: false, filter_metadata: true, filter_nodes: true, filter_routing_table: true})
   end
 
+  ###
+  # TEMPLATE: Get
+  #
   def template_get
   end
 
+  ###
+  # TEMPLATE: Put
+  #
   def template_put
   end
 
   
+  ###
+  # CLUSTER: Health
+  #
   def cluster_health
     @es.cluster.health
+  end
+
+  ###
+  # CLUSTER: Status
+  #
+  def cluster_status
+    @es.cluster.status
+  end
+  
+  ###
+  # CLUSTER: get_settings
+  #
+  def cluster_get_settings
+    @es.cluster.get_settings
+  end
+  
+  ###
+  # CLUSTER: put_settings
+  #
+  def cluster_put_settings
+    # @es.cluster.put_settings
   end
 
 end
