@@ -22,12 +22,13 @@ ElasticSearch CLI tool for human beings (i.e. sysadmins)
         escli [-j] template put <template> <file>
         escli [-j] cluster get-settings
         escli [-j] cluster put-settings <file>
+        escli [-j] cluster nodes
+        escli [-j] cluster routing <index>
+        escli [-j] cluster reroute-shard <index> [--shard=<shard>] --from=<from> --to=<to>
+        escli [-j] cluster reroute-node <node> --from=<from> --to=<to>
         escli [-j] cluster shutdown [<nodes>]
-        escli [-j] cluster status
         escli [-j] cluster health
         escli (-h|--help)
-      
-      
       
       Index Actions:
         list              Lists indices Can be filtered by regex.
@@ -53,6 +54,10 @@ ElasticSearch CLI tool for human beings (i.e. sysadmins)
       Cluster Actions:
         get-settings      Fetch cluster settings.
         put-settings      Set cluster parameters from file. `-` is STDIN
+        nodes
+        routing           Show shard routing for index
+        reroute-shard     Move index shard to another node
+        reroute-node      Move all shards of indexes mathing regex to another node
         shutdown          Shutdown cluster/nodes!
         health            Display cluster health.
       
@@ -62,3 +67,6 @@ ElasticSearch CLI tool for human beings (i.e. sysadmins)
         -g                Dump to gzipped files.
         --scroll=<time>   Time to keep scroll_id in ElasticSearch [default: 30m].
         --docs=<docs>     Number of documents to dump in one chunk [default: 1000].
+        --shard=<shard>   Shard id to reroute
+        --from=<node>     Node from which to move the shard
+        --to=<node>       Node to which to move the shard   
