@@ -55,12 +55,13 @@ Usage:
   escli [-j] template put <template> <file>
   escli [-j] cluster get-settings
   escli [-j] cluster put-settings <file>
+  escli [-j] cluster nodes
+  escli [-j] cluster routing <index>
+  escli [-j] cluster reroute-shard <index> [--shard=<shard>] --from=<from> --to=<to>
+  escli [-j] cluster reroute-node <node> --from=<from> --to=<to>
   escli [-j] cluster shutdown [<nodes>]
-  escli [-j] cluster status
   escli [-j] cluster health
   escli (-h|--help)
-
-
 
 Index Actions:
   list              Lists indices Can be filtered by regex.
@@ -86,6 +87,10 @@ Template Actions:
 Cluster Actions:
   get-settings      Fetch cluster settings.
   put-settings      Set cluster parameters from file. `-` is STDIN
+  nodes
+  routing           Show shard routing for index
+  reroute-shard     Move index shard to another node
+  reroute-node      Move all shards of indexes mathing regex to another node
   shutdown          Shutdown cluster/nodes!
   health            Display cluster health.
 
@@ -95,6 +100,9 @@ Options:
   -g                Dump to gzipped files.
   --scroll=<time>   Time to keep scroll_id in ElasticSearch [default: 30m].
   --docs=<docs>     Number of documents to dump in one chunk [default: 1000].
+  --shard=<shard>   Shard id to reroute
+  --from=<node>     Node from which to move the shard
+  --to=<node>       Node to which to move the shard
 
 DOCOPT
     begin
@@ -149,6 +157,10 @@ DOCOPT
         self.cluster_health
       elsif self.options['get-settings']
         self.cluster_get_settings
+      elsif self.options['nodes']
+        self.cluster_nodes
+      elsif self.options['routing']
+        self.cluster_routing
       end
     elsif self.options['template']
       if self.options['list']
@@ -177,11 +189,12 @@ DOCOPT
   #
   def index_list (filter = ".*")
     log "Fetching blocks."
-    es_blocks = @es.cluster.state({ filter_index_templates: true,
-                                    filter_metadata: true, 
-                                    filter_nodes: true,
-                                    filter_routing_table: true,
-                                  })['blocks']['indices']
+    es_blocks = @es.cluster.state({
+      filter_index_templates: true,
+      filter_metadata: true, 
+      filter_nodes: true,
+      filter_routing_table: true,
+    })['blocks']['indices']
     es_blocks ||= {}
     log "Fetching indices."
     es_indices = @es.indices.status['indices']
@@ -361,7 +374,47 @@ DOCOPT
   def template_put
   end
 
-  
+  ###
+  # CLUSTER: Nodes
+  #
+  def cluster_nodes
+    log "Fetching node list"
+    @es.cluster.state({
+      filter_metadata: true,
+      filter_indices: true,
+      filter_routing_table: true,
+      filter_index_templates:true,
+      filter_blocks: true
+    })['nodes'].delete_if { |id, info| info['attributes']['client'] == 'true' }
+  end
+
+  ###
+  # CLUSTER: Rounting
+  #
+  def cluster_routing
+    ret = Hash.new
+    nodes = self.cluster_nodes
+    log "Fetching shard routing"
+    shards = @es.cluster.state({ 
+      filter_metadata: true,
+      filter_indices: true,
+      filter_nodes: true,
+      filter_index_templates:true,
+      filter_blocks: true
+    })['routing_table']['indices'][self.options['<index>']]['shards']
+    nodes.each do |id, node|
+      ret[node['name']] = { 'primary' => Array.new, 'secondary' => Array.new, 'other' => Array.new }
+      shards.each do |shard, replicas|
+        replicas.each do |replica| 
+          ret[node['name']]['primary'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == true
+          ret[node['name']]['secondary'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == false
+          ret[node['name']]['other'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if ( replica['node'] != id && replica['state'] != 'STARTED' ) || replica['node'] == '' 
+        end
+      end
+    end
+    Hash[ret.sort]
+  end
+
   ###
   # CLUSTER: Health
   #
