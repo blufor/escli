@@ -34,6 +34,7 @@ Usage:
   #{__FILE__} [-j] index optimize <regex>
   #{__FILE__} [-j] index refresh <regex>
   #{__FILE__} [-j] index flush <regex>
+  #{__FILE__} [-j] index dump <regex> [-t=<time>] [-s=<docs>]
   #{__FILE__} [-j] index get-mapping <index>
   #{__FILE__} [-j] index put-mapping <index>
   #{__FILE__} [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
@@ -45,6 +46,39 @@ Usage:
   #{__FILE__} [-j] cluster shutdown [<nodes>]
   #{__FILE__} [-j] cluster status
   #{__FILE__} [-j] cluster health
+  #{__FILE__} (-h|--help)
+
+Options:
+  -h --help         Show this.
+  -j                Show output in JSON instead of YAML.
+  -t=<time>         Time to keep scroll_id in ElasticSearch [default: 15m].
+
+
+Index Actions:
+  list
+  delete
+  open
+  close
+  optimize
+  refresh
+  flush
+  dump
+  get-mapping
+  put-mapping
+  get-settings
+  put-settings
+  clear-cache
+
+Template Actions:
+  list
+  get
+  put
+
+Cluster Actions:
+  get-settings
+  put-settings
+  shutdown
+  health
 DOCOPT
     begin
       @options = Docopt.docopt(doc)
@@ -89,6 +123,12 @@ DOCOPT
         else  
           log "You must provide index name or regex"
         end
+      elsif self.options['dump']
+        if self.options['<regex>']
+          self.index_dump self.options['<regex>']
+        else  
+          self.index_dump
+        end
       elsif self.options['get-mapping']
         self.index_get_mapping self.options['<index>']
       end
@@ -118,7 +158,11 @@ DOCOPT
 ##############################################################################
 
   def index_list (filter = ".*")
-    es_blocks = @es.cluster.state({filter_index_templates: true, filter_metadata: true, filter_nodes: true, filter_routing_table: true})['blocks']['indices']
+    es_blocks = @es.cluster.state({ filter_index_templates: true,
+                                    filter_metadata: true, 
+                                    filter_nodes: true,
+                                    filter_routing_table: true,
+                                  })['blocks']['indices']
     es_blocks ||= {}
     es_indices = @es.indices.status['indices']
 
@@ -135,7 +179,6 @@ DOCOPT
     indices = Hash.new
     indices.merge! closed_indices
     indices.merge! available_indices
-
     indices = indices.delete_if {|index, data| not Regexp.new(filter).match(index)}
 
     { indices: indices.count, items: Hash[indices.sort] }
@@ -159,7 +202,7 @@ DOCOPT
     items = self.index_list(filter)[:items].keys
     items.each do |index|
       log "Deleting index #{index}."
-      @es.indices.delete({ ignore_unavailable: false, index: index })
+      @es.indices.delete ignore_unavailable: false, index: index
       deleted += 1
       log "Index #{index} deleted."
     end
@@ -170,18 +213,68 @@ DOCOPT
     closed = 0
     items = self.index_list(filter)[:items].keys
     items.each do |index|
-      log "Closing index #{index}."
-      @es.indices.close({ ignore_unavailable: false, index: index })
+      log "#{index}: closing index."
+      @es.indices.close ignore_unavailable: false, index: index
       closed += 1
-      log "Index #{index} closed."
+      log "#{index}: index closed."
     end
     { closed: closed , indices: items }
+  end
+
+  def index_dump (filter = ".*")
+    dump_dir = self.config[:dump_directory] || '/tmp/esdump'
+    dumped_index_count = 0
+    dumped_docs_count = 0
+
+    items = self.index_list(filter)[:items].keys
+    items.each do |index|
+      log "#{index}: dumping index"
+      Dir.exists?(dump_dir + '/' + index) || Dir.mkdir(dump_dir + '/' + index)
+
+      log "#{index}: dumping index mapping"
+      fd_mapping = File.open [dump_dir,index,'mapping.json'].join('/'), 'w'
+      fd_mapping << JSON.pretty_generate(self.index_get_mapping(index)[index])
+      fd_mapping.close
+      log "#{index}: index mapping dumped"
+
+      log "#{index}: dumping index settings"
+      fd_settings = File.open [dump_dir,index,'settings.json'].join('/'), 'w'
+      fd_settings << JSON.pretty_generate(self.index_get_settings(index)[index])
+      fd_settings.close
+      log "#{index}: index settings dumped"
+
+      result = @es.search({ index: index,
+                            scroll: self.options['-t'] || '30m',
+                            search_type: 'scan',
+                            size: 200,
+                          })
+      log "#{index}: dumping #{result['hits']['total']} documents"
+      scroll_id = result['_scroll_id']
+      chunk = 0
+      while data = @es.scroll({ scroll: self.options['-t'] || '30m', scroll_id: scroll_id})
+        chunk += 1
+        scroll_id = data['_scroll_id']
+        log "#{index}: dumping chunk \##{chunk}/#{result['hits']['total']/1000+1}"
+        fd_index = File.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json", 'w')
+        fd_index << data['hits']['hits'].to_json
+        fd_index.close
+        scroll_id = data['_scroll_id']
+      end
+      dumped_index_count += 1
+      dumped_docs_count += result['hits']['total']
+      log "#{index}: #{dumped_docs_count} documents dumped"
+      log "#{index}: index dumped"
+    end
+    { dumped_indices: dumped_index_count, dumped_docs: dumped_docs_count, indices: items }
   end
 
   def index_get_mapping index
     @es.indices.get_mapping index: index
   end
 
+  def index_get_settings index
+    @es.indices.get_settings index: index
+  end
 
   def template_list
     @es.cluster.state({filter_blocks: true, filter_index_templates: false, filter_metadata: true, filter_nodes: true, filter_routing_table: true})

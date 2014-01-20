@@ -12,6 +12,7 @@ ElasticSearch CLI tool for human beings (i.e. sysadmins)
       escli [-j] index optimize <regex> # TBD
       escli [-j] index refresh <regex> # TBD
       escli [-j] index flush <regex> # TBD
+      escli [-j] index dump <index> [-g]
       escli [-j] index get-mapping <index>
       escli [-j] index put-mapping <index> # TBD
       escli [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]  # TBD
