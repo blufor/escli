@@ -45,6 +45,7 @@ Usage:
   escli [-j] index refresh <regex>
   escli [-j] index flush <regex>
   escli [-j] index dump <regex> [-g] [--scroll=<time>] [--docs=<docs>]
+  escli [-j] index import <index> <directory> [-g]
   escli [-j] index get-mapping <index>
   escli [-j] index put-mapping <index> <file>
   escli [-j] index get-settings <index>
@@ -73,6 +74,8 @@ Index Actions:
   flush             Flushes index/indices by regex.
   dump              Exports mapping, settings and data from index/indices.
                     by regex into directory set in .escli.
+  import            Imports dumps from directory with datafile into specified
+                    index.
   get-mapping       Fetch mapping for index.
   put-mapping       Set new mapping for index from file. `-` is STDIN.
   get-settings      Fetch setting for index.
@@ -86,23 +89,23 @@ Template Actions:
 
 Cluster Actions:
   get-settings      Fetch cluster settings.
-  put-settings      Set cluster parameters from file. `-` is STDIN
-  nodes
-  routing           Show shard routing for index
-  reroute-shard     Move index shard to another node
-  reroute-node      Move all shards of indexes mathing regex to another node
+  put-settings      Set cluster parameters from file. `-` is STDIN.
+  node              Lists cluster nodes.
+  routing           Show shard routing for index.
+  reroute-shard     Move index shard to another node.
+  reroute-node      Move all shards of indexes mathing regex to another node.
   shutdown          Shutdown cluster/nodes!
   health            Display cluster health.
 
 Options:
   -h --help         Show this.
   -j                Show output in JSON instead of YAML.
-  -g                Dump to gzipped files.
+  -g                Dump/import to/from gzipped files.
   --scroll=<time>   Time to keep scroll_id in ElasticSearch [default: 30m].
   --docs=<docs>     Number of documents to dump in one chunk [default: 1000].
-  --shard=<shard>   Shard id to reroute
-  --from=<node>     Node from which to move the shard
-  --to=<node>       Node to which to move the shard
+  --shard=<shard>   Shard id to reroute.
+  --from=<node>     Node from which to move the shard.
+  --to=<node>       Node to which to move the shard.
 
 DOCOPT
     begin
