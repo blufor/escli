@@ -1,5 +1,5 @@
-escli
-=====
+ElasticSearch CLI management tool
+=================================
 
 ElasticSearch CLI tool for human beings (i.e. sysadmins)
 
