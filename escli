@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 
 require 'yaml'
 require 'elasticsearch'
@@ -58,8 +58,8 @@ Usage:
   escli [-j] cluster put-settings <file>
   escli [-j] cluster nodes
   escli [-j] cluster routing <index>
-  escli [-j] cluster reroute-shard <index> [--shard=<shard>] --from=<from> --to=<to>
-  escli [-j] cluster reroute-node <node> --from=<from> --to=<to>
+  escli [-j] cluster reroute-shard <index> --shard=<shard> --from=<from> --to=<to>
+  escli [-j] cluster reroute-node <node> --to=<to>
   escli [-j] cluster shutdown [<nodes>]
   escli [-j] cluster health
   escli (-h|--help)
