@@ -45,7 +45,7 @@ Usage:
   escli [-j] index refresh <regex>
   escli [-j] index flush <regex>
   escli [-j] index dump <regex> [-g] [--scroll=<time>] [--docs=<docs>]
-  escli [-j] index import <index> <directory> [-g]
+  escli [-j] index import <directory> [-g] [--index=<index>]
   escli [-j] index get-mapping <index>
   escli [-j] index put-mapping <index> <file>
   escli [-j] index get-settings <index>
@@ -106,6 +106,8 @@ Options:
   --shard=<shard>   Shard id to reroute.
   --from=<node>     Node from which to move the shard.
   --to=<node>       Node to which to move the shard.
+  --index=<index>   Name of destination index (if omitted, the source index
+                    name is used) 
 
 DOCOPT
     begin
@@ -146,6 +148,8 @@ DOCOPT
         self.index_close self.options['<regex>']
       elsif self.options['dump']
         self.index_dump self.options['<regex>']
+      elsif self.options['import']
+        self.index_import
       elsif self.options['get-mapping']
         self.index_get_mapping self.options['<index>']
       elsif self.options['put-mapping']
@@ -244,7 +248,7 @@ DOCOPT
     items = self.index_list(filter)[:items].keys
     items.each do |index|
       log "Deleting index #{index}."
-      @es.indices.delete ignore_unavailable: false, index: index
+      @es.indices.delete index: index
       deleted += 1
       log "Index #{index} deleted."
     end
@@ -270,7 +274,7 @@ DOCOPT
   # INDEX: Dump
   #
   def index_dump (filter = ".*")
-    dump_dir = self.config[:dump_directory] || '/tmp/esdump'
+    dump_dir = self.config[:dump_directory] || '/tmp/escli_dump'
     dumped_index_count = 0
     dumped_docs_count = 0
 
@@ -301,16 +305,17 @@ DOCOPT
       orig_scroll_id = result['_scroll_id']
       chunk = 1
       log "#{index}: dumping chunk #{chunk}/#{chunks}"
-      while data = @es.scroll({ scroll: self.options['-t'] || '30m', scroll_id: scroll_id})
+      while data = @es.scroll({ scroll: self.options['--scroll'], scroll_id: scroll_id})
         break if ( data['_scroll_id'] == scroll_id ) && ( data['_scroll_id'] != orig_scroll_id )
         log "#{index}: dumping chunk #{chunk}/#{chunks}" if chunk != 1
         scroll_id = data['_scroll_id']
         if self.options['-g']
           fd_index = Zlib::GzipWriter.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json.gz")
         else
-          fd_index = File.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json", 'w+')
+          fd_index = File.open("#{dump_dir}/#{index}/data." + sprintf('%07d', chunk) + ".json", 'w')
         end
-        fd_index << JSON.pretty_generate(data['hits']['hits'])
+        docs = data['hits']['hits']
+        fd_index << JSON::pretty_generate(docs)
         fd_index.close
         chunk += 1
       end
@@ -322,12 +327,31 @@ DOCOPT
     { dumped_indices: dumped_index_count, dumped_docs: dumped_docs_count, indices: items }
   end
 
-  def dump_output
-    if self.options['-g']
-      File
-    else
-      File
+  ###
+  # INDEX: Import
+  #
+  def index_import
+    ( log "Dump data directory doesn\'t exist"; return ) if not Dir.exists?(self.options['<directory>'])
+    suffix = self.options['-g'] ? '.json.gz' : '.json'
+    files = Dir[self.options['<directory>'] + '/data*' + suffix].sort
+    log "Importing files: #{files.to_s}"
+    files.each do |file|
+      bulk = Array.new
+      fd_index = self.options['-g'] ? Zlib::GzipReader.open(file) : File.open(file, 'r')
+      log "Reading #{file}"
+      JSON.load(fd_index.read).each do |doc|
+        bulk << { index: {
+          _index: self.options['--index'] || doc['_index'],
+          _type: doc['_type'],
+          _id: doc['_id'],
+          data: doc['_source'] }
+        }
+      end
+      log "Importing #{bulk.count} docs."
+      @es.bulk body: bulk
+      log "Imported #{file}"
     end
+
   end
 
   ###
@@ -362,7 +386,13 @@ DOCOPT
   # TEMPLATE: List
   #
   def template_list
-    @es.cluster.state({filter_blocks: true, filter_index_templates: false, filter_metadata: true, filter_nodes: true, filter_routing_table: true})
+    @es.cluster.state({
+      filter_blocks: true,
+      filter_index_templates: false,
+      filter_metadata: true,
+      filter_nodes: true,
+      filter_routing_table: true
+    })
   end
 
   ###
@@ -409,9 +439,15 @@ DOCOPT
       ret[node['name']] = { 'primary' => Array.new, 'secondary' => Array.new, 'other' => Array.new }
       shards.each do |shard, replicas|
         replicas.each do |replica| 
-          ret[node['name']]['primary'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == true
-          ret[node['name']]['secondary'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == false
-          ret[node['name']]['other'] << { shard => replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if ( replica['node'] != id && replica['state'] != 'STARTED' ) || replica['node'] == '' 
+          ret[node['name']]['primary'] << 
+            { shard => 
+              replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == true
+          ret[node['name']]['secondary'] <<
+            { shard => 
+              replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == false
+          ret[node['name']]['other'] <<
+            { shard => 
+              replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if ( replica['node'] != id && replica['state'] != 'STARTED' ) || replica['node'] == '' 
         end
       end
     end
