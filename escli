@@ -32,6 +32,20 @@ class EScli
 
 
   ###
+  # CORE: YAML/JSON/Gzip file loader
+  #
+  def load_file file
+    log "Opening & reading #{file}"
+    if file == '-'
+      fd = $stdin.read
+      YAML::load(fd) || JSON::load(fd)
+    else
+      fd = self.options['-g'] ? Zlib::GzipReader.open(file) : File.open(file, 'r')
+      YAML::load(fd.read) || JSON::load(fd.read)      
+    end
+  end
+
+  ###
   # CORE: Help & CLI options initialization
   #
   def parse_opts
@@ -131,7 +145,7 @@ DOCOPT
   # CORE: Read .escli config file
   #
   def read_config_file
-    @config = YAML::load(File.open('.escli'))
+    @config = YAML::load(File.open(Dir.home + '/.escli'))
   end
 
   ###
@@ -292,13 +306,43 @@ DOCOPT
     optimized = 0
     items = self.index_list(filter)[:items].keys
     items.each do |index|
-      log "#{index}: closing index."
+      log "#{index}: optimizing index."
       @es.indices.optimize index: index
       optimized += 1
       log "#{index}: index optimized."
     end
     { optimized: optimized , indices: items }
   end
+
+  ###
+  # INDEX: Flush
+  #
+  # def index_flush (filter = ".*")
+  #   flushed = 0
+  #   items = self.index_list(filter)[:items].keys
+  #   items.each do |index|
+  #     log "#{index}: flushing index."
+  #     @es.indices.flush index: index
+  #     flushed += 1
+  #     log "#{index}: index flushed."
+  #   end
+  #   { flushed: flushed , indices: items }
+  # end
+
+  ###
+  # INDEX: Refresh
+  #
+  # def index_optimize (filter = ".*")
+  #   optimized = 0
+  #   items = self.index_list(filter)[:items].keys
+  #   items.each do |index|
+  #     log "#{index}: closing index."
+  #     @es.indices.optimize index: index
+  #     optimized += 1
+  #     log "#{index}: index optimized."
+  #   end
+  #   { optimized: optimized , indices: items }
+  # end
 
   ###
   # INDEX: Dump
@@ -367,9 +411,8 @@ DOCOPT
     log "Importing files: #{files.to_s}"
     files.each do |file|
       bulk = Array.new
-      fd_index = self.options['-g'] ? Zlib::GzipReader.open(file) : File.open(file, 'r')
-      log "Reading #{file}"
-      JSON.load(fd_index.read).each do |doc|
+      data = self.load_file file
+      data.each do |doc|
         bulk << { index: {
           _index: self.options['--index'] || doc['_index'],
           _type: doc['_type'],
@@ -388,7 +431,7 @@ DOCOPT
   # INDEX: Get Mapping
   #
   def index_get_mapping index
-    @es.indices.get_mapping index: index
+    @es.indices.get_mapping({index: index})[index]
   end
 
   ###
@@ -402,14 +445,14 @@ DOCOPT
   # INDEX: Get Settings
   #
   def index_get_settings index
-    @es.indices.get_settings index: index
+    @es.indices.get_settings({index: index})[index]
   end
 
   ###
   # INDEX: Put Settings
   #
-  def indes_put_settings index
-    # @es.indices.put_settings
+  def index_put_settings index
+    @es.indices.put_settings index: index, body: self.load_file(self.options['<file>'])
   end
 
   ###
@@ -445,10 +488,7 @@ DOCOPT
   # TEMPLATE: Put
   #
   def template_put
-    log "Opening #{self.options['<file>']}"
-    file = self.options['<file>'] == '-' ? $stdin.read : IO.read(self.options['<file>'])
-    log "Parsing file"
-    data = YAML::load(file) || JSON.parse(file)
+    data = self.load_file(self.options['<file>'])
     log "Putting template #{self.options['<name>']}"
     @es.indices.put_template name: self.options['<name>'], body: data
   end
