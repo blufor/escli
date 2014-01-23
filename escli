@@ -511,7 +511,7 @@ DOCOPT
   # CLUSTER: Rounting
   #
   def cluster_routing
-    ret = Hash.new
+    ret = Hash.newassert_equal(expected, actual)
     nodes = self.cluster_nodes
     log "Fetching shard routing"
     shards = @es.cluster.state({ 
