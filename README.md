@@ -11,16 +11,18 @@ ElasticSearch CLI tool for human beings (i.e. sysadmins)
         # escli [-j] index optimize <regex>
         # escli [-j] index refresh <regex>
         # escli [-j] index flush <regex>
+        # escli [-j] index read_only set <regex>
         escli [-j] index dump <regex> [-g] [--scroll=<time>] [--docs=<docs>]
-        # escli [-j] index import <index> <directory> [-g]
+        escli [-j] index import <index> <directory> [-g]
         escli [-j] index get-mapping <index>
         # escli [-j] index put-mapping <index> <file>
         escli [-j] index get-settings <index>
         # escli [-j] index put-settings <index> <file>
         # escli [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
         escli [-j] template list
-        # escli [-j] template get <template>
-        # escli [-j] template put <template> <file>
+        escli [-j] template get <name>
+        escli [-j] template delete <name>
+        escli [-j] template put <name> <file>
         escli [-j] cluster get-settings
         # escli [-j] cluster put-settings <file>
         escli [-j] cluster nodes

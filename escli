@@ -52,8 +52,9 @@ Usage:
   escli [-j] index put-settings <index> <file>
   escli [-j] index clear-cache [-d [<fields>]] [-c] [-i] [<index>]
   escli [-j] template list
-  escli [-j] template get <template>
-  escli [-j] template put <template> <file>
+  escli [-j] template get <name>
+  escli [-j] template delete <name>
+  escli [-j] template put <name> <file>
   escli [-j] cluster get-settings
   escli [-j] cluster put-settings <file>
   escli [-j] cluster nodes
@@ -144,8 +145,14 @@ DOCOPT
         self.index_delete self.options['<regex>']
       elsif self.options['open']
         self.index_open self.options['<regex>']
+      elsif self.options['optimize']
+        self.index_optimize self.options['<regex>']
       elsif self.options['close']
         self.index_close self.options['<regex>']
+      elsif self.options['flush']
+        self.index_flush self.options['<regex>']
+      elsif self.options['refresh']
+        self.index_refresh self.options['<regex>']
       elsif self.options['dump']
         self.index_dump self.options['<regex>']
       elsif self.options['import']
@@ -158,6 +165,14 @@ DOCOPT
         self.index_get_settings self.options['<index>']
       elsif self.options['put-settings']
         self.index_put_settings self.options['<index>']
+      end
+    elsif self.options['template']
+      if self.options['put']
+        self.template_put
+      elsif self.options['get']
+        self.template_get
+      elsif self.options['delete']
+        self.template_delete
       end
     elsif self.options['cluster']
       if self.options['health']
@@ -268,6 +283,21 @@ DOCOPT
       log "#{index}: index closed."
     end
     { closed: closed , indices: items }
+  end
+
+  ###
+  # INDEX: Optimize
+  #
+  def index_optimize (filter = ".*")
+    optimized = 0
+    items = self.index_list(filter)[:items].keys
+    items.each do |index|
+      log "#{index}: closing index."
+      @es.indices.optimize index: index
+      optimized += 1
+      log "#{index}: index optimized."
+    end
+    { optimized: optimized , indices: items }
   end
 
   ###
@@ -399,12 +429,28 @@ DOCOPT
   # TEMPLATE: Get
   #
   def template_get
+    log "Getting template #{self.options['<name>']}"
+    @es.indices.get_template name: self.options['<name>']
+  end
+
+  ###
+  # TEMPLATE: Delete
+  #
+  def template_delete
+    log "Deleting template #{self.options['<name>']}"
+    @es.indices.delete_template name: self.options['<name>']
   end
 
   ###
   # TEMPLATE: Put
   #
   def template_put
+    log "Opening #{self.options['<file>']}"
+    file = self.options['<file>'] == '-' ? $stdin.read : IO.read(self.options['<file>'])
+    log "Parsing file"
+    data = YAML::load(file) || JSON.parse(file)
+    log "Putting template #{self.options['<name>']}"
+    @es.indices.put_template name: self.options['<name>'], body: data
   end
 
   ###

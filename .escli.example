@@ -1,0 +1,3 @@
+---
+:server: 'localhost:9200'
+:dump_directory: '/tmp'

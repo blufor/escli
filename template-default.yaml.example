@@ -1,0 +1,30 @@
+---
+template: '*'
+order: 0
+settings: 
+  number_of_shards: 1
+  number_of_replicas: 2
+mappings:
+  _default_:
+    _all:
+      enabled: false
+    _source:
+      compress: true
+  logs:
+    properties:
+      "@timestamp":
+        type: date
+        format: dateOptionalTime
+        index: analyzed
+      hostname:
+        type: string
+        index: not_analyzed
+      message:
+        type: string
+        index: analyzed
+      tags:
+        type: string
+        index: analyzed
+      type:
+        type: string
+        index: analyzed
