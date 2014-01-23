@@ -1,4 +1,0 @@
----
-:server: 'eslog1.us-w2.aws.ccl:9200'
-:dump_directory: '/mnt'
-
