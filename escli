@@ -41,7 +41,7 @@ class EScli
       YAML::load(fd) || JSON::load(fd)
     else
       fd = self.options['-g'] ? Zlib::GzipReader.open(file) : File.open(file, 'r')
-      YAML::load(fd.read) || JSON::load(fd.read)      
+      YAML::load(fd.read) || JSON::load(fd.read)
     end
   end
 
@@ -122,7 +122,7 @@ Options:
   --from=<node>     Node from which to move the shard.
   --to=<node>       Node to which to move the shard.
   --index=<index>   Name of destination index (if omitted, the source index
-                    name is used) 
+                    name is used)
 
 DOCOPT
     begin
@@ -200,7 +200,7 @@ DOCOPT
       end
     elsif self.options['template']
       if self.options['list']
-        self.template_list 
+        self.template_list
       end
     end
   end
@@ -225,12 +225,7 @@ DOCOPT
   #
   def index_list (filter = ".*")
     log "Fetching blocks."
-    es_blocks = @es.cluster.state({
-      filter_index_templates: true,
-      filter_metadata: true, 
-      filter_nodes: true,
-      filter_routing_table: true,
-    })['blocks']['indices']
+    es_blocks = @es.cluster.state['blocks']['indices']
     es_blocks ||= {}
     log "Fetching indices."
     es_indices = @es.indices.status['indices']
@@ -514,7 +509,7 @@ DOCOPT
     ret = Hash.newassert_equal(expected, actual)
     nodes = self.cluster_nodes
     log "Fetching shard routing"
-    shards = @es.cluster.state({ 
+    shards = @es.cluster.state({
       filter_metadata: true,
       filter_indices: true,
       filter_nodes: true,
@@ -524,16 +519,16 @@ DOCOPT
     nodes.each do |id, node|
       ret[node['name']] = { 'primary' => Array.new, 'secondary' => Array.new, 'other' => Array.new }
       shards.each do |shard, replicas|
-        replicas.each do |replica| 
-          ret[node['name']]['primary'] << 
-            { shard => 
+        replicas.each do |replica|
+          ret[node['name']]['primary'] <<
+            { shard =>
               replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == true
           ret[node['name']]['secondary'] <<
-            { shard => 
+            { shard =>
               replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if replica['node'] == id && replica['primary'] == false
           ret[node['name']]['other'] <<
-            { shard => 
-              replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if ( replica['node'] != id && replica['state'] != 'STARTED' ) || replica['node'] == '' 
+            { shard =>
+              replica.delete_if { |key| key =~ /^(node|shard|primary|index)$/ } } if ( replica['node'] != id && replica['state'] != 'STARTED' ) || replica['node'] == ''
         end
       end
     end
@@ -553,14 +548,14 @@ DOCOPT
   def cluster_status
     @es.cluster.status
   end
-  
+
   ###
   # CLUSTER: get_settings
   #
   def cluster_get_settings
     @es.cluster.get_settings
   end
-  
+
   ###
   # CLUSTER: put_settings
   #
